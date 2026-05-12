@@ -7,14 +7,14 @@ Welcome to your new [Mastra](https://mastra.ai/) project! We're excited to see w
 Configure your OpenAI-compatible provider in `.env`:
 
 ```shell
-CUSTOM_OPENAI_PROVIDER_ID=custom-openai
-CUSTOM_OPENAI_BASE_URL=https://your-openai-compatible-endpoint/v1
+CUSTOM_OPENAI_PROVIDER_ID=local
+CUSTOM_OPENAI_BASE_URL=http://127.0.0.1:48760/v1
 CUSTOM_OPENAI_API_KEY=your-api-key
 CUSTOM_OPENAI_MODEL=gpt-5
-CUSTOM_OPENAI_JUDGE_MODEL=gpt-5-mini
+CUSTOM_OPENAI_JUDGE_MODEL=gpt-5
 ```
 
-`CUSTOM_OPENAI_MODEL` is used by the agents. `CUSTOM_OPENAI_JUDGE_MODEL` is used by the LLM-judged scorer and can point to a cheaper or faster compatible model. If `CUSTOM_OPENAI_API_KEY` is unset, the project falls back to `OPENAI_API_KEY`.
+`CUSTOM_OPENAI_MODEL` is used by the agents. `CUSTOM_OPENAI_JUDGE_MODEL` is used by the LLM-judged scorer and can point to a cheaper or faster compatible model. If `CUSTOM_OPENAI_API_KEY` is unset, the project falls back to `OPENAI_API_KEY`. The provider is registered in Mastra Studio as `openclaw/local`.
 
 Start the development server:
 

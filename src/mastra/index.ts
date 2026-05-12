@@ -11,6 +11,7 @@ import { webAgent } from './agents/web-agent';
 import { sharedAgentMemory } from './memory/shared-memory';
 import { webAgentWorkspace } from './workspaces/web-workspace';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
+import { openClawGateway } from './models/openai-compatible';
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow },
@@ -18,6 +19,9 @@ export const mastra = new Mastra({
   scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
   memory: { sharedAgentMemory },
   workspace: webAgentWorkspace,
+  gateways: {
+    openclaw: openClawGateway,
+  },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
     default: new LibSQLStore({
