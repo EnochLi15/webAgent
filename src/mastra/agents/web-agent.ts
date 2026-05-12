@@ -4,6 +4,7 @@ import { sharedAgentMemory } from '../memory/shared-memory';
 import { weatherTool } from '../tools/weather-tool';
 import { fetchUrlMetadataTool } from '../tools/web-tools';
 import { webAgentWorkspace } from '../workspaces/web-workspace';
+import { defaultModel } from '../models/openai-compatible';
 
 export const webAgent = new Agent({
   id: 'web-agent',
@@ -21,7 +22,7 @@ When browser automation is needed, navigate first, inspect the page snapshot, th
 When a task can be answered by a structured tool without opening a browser, prefer the tool.
 When skills are available, load the relevant skill before doing specialized project or browser work.
 Ask for confirmation before destructive workspace or external actions.`,
-  model: 'openai/gpt-5',
+  model: defaultModel,
   tools: {
     weatherTool,
     fetchUrlMetadataTool,
