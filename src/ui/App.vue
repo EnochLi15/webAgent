@@ -13,6 +13,10 @@ const error = ref<Error | undefined>();
 
 const isBusy = computed(() => status.value === 'submitted' || status.value === 'streaming');
 
+let queuedText = '';
+let textDrainTimer: ReturnType<typeof setTimeout> | undefined;
+let resolveTextDrain: (() => void) | undefined;
+
 const appendAssistantPart = (part: UIMessage['parts'][number]) => {
   const assistant = messages.value[messages.value.length - 1];
 
@@ -41,8 +45,52 @@ const appendTextDelta = (delta: string) => {
   appendAssistantPart({ type: 'text', text: delta });
 };
 
+const drainQueuedText = () => {
+  if (!queuedText) {
+    textDrainTimer = undefined;
+    resolveTextDrain?.();
+    resolveTextDrain = undefined;
+    return;
+  }
+
+  const characters = Array.from(queuedText);
+  appendTextDelta(characters.slice(0, 2).join(''));
+  queuedText = characters.slice(2).join('');
+  textDrainTimer = setTimeout(drainQueuedText, 16);
+};
+
+const enqueueTextDelta = (delta: string) => {
+  queuedText += delta;
+
+  if (!textDrainTimer) {
+    drainQueuedText();
+  }
+};
+
+const waitForTextDrain = async () => {
+  if (!queuedText && !textDrainTimer) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    resolveTextDrain = resolve;
+  });
+};
+
+const resetTextDrain = () => {
+  queuedText = '';
+  resolveTextDrain?.();
+  resolveTextDrain = undefined;
+
+  if (textDrainTimer) {
+    clearTimeout(textDrainTimer);
+    textDrainTimer = undefined;
+  }
+};
+
 const handleStreamChunk = (chunk: Record<string, unknown>) => {
   if (chunk.type === 'start') {
+    resetTextDrain();
     status.value = 'streaming';
     messages.value.push({
       id: typeof chunk.messageId === 'string' ? chunk.messageId : crypto.randomUUID(),
@@ -53,7 +101,7 @@ const handleStreamChunk = (chunk: Record<string, unknown>) => {
   }
 
   if (chunk.type === 'text-delta' && typeof chunk.delta === 'string') {
-    appendTextDelta(chunk.delta);
+    enqueueTextDelta(chunk.delta);
     return;
   }
 
@@ -136,8 +184,10 @@ const submitMessage = async () => {
         }),
       }),
     );
+    await waitForTextDrain();
     status.value = 'ready';
   } catch (caught) {
+    resetTextDrain();
     error.value = caught instanceof Error ? caught : new Error('Chat request failed');
     status.value = 'error';
   }
@@ -148,6 +198,7 @@ const usePrompt = (text: string) => {
 };
 
 const startNewThread = () => {
+  resetTextDrain();
   threadId.value = `thread-${crypto.randomUUID()}`;
   messages.value = [];
   error.value = undefined;

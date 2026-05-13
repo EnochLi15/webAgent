@@ -8,6 +8,7 @@ import { RequestContext, MASTRA_RESOURCE_ID_KEY, MASTRA_THREAD_ID_KEY } from '@m
 import { registerApiRoute } from '@mastra/core/server';
 import { createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import type { UIMessage } from 'ai';
+import { toAISdkStream } from '@mastra/ai-sdk';
 import { Observability, DefaultExporter, CloudExporter, SensitiveDataFilter } from '@mastra/observability';
 import { weatherWorkflow } from './workflows/weather-workflow';
 import { weatherAgent } from './agents/weather-agent';
@@ -136,25 +137,6 @@ Answer the user naturally using the structured tool result. Be concise and do no
   ];
 };
 
-const removeRepeatedText = (text: string) => {
-  const sentences = text
-    .split(/(?<=[。！？!?])\s*/u)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-
-  const seen = new Set<string>();
-  const uniqueSentences = sentences.filter((sentence) => {
-    const normalized = sentence.replace(/\s+/g, '');
-    if (seen.has(normalized)) {
-      return false;
-    }
-    seen.add(normalized);
-    return true;
-  });
-
-  return uniqueSentences.join('');
-};
-
 const createChatMemoryContext = (body: ChatRequestBody, baseContext?: RequestContext) => {
   const requestContext = new RequestContext(baseContext?.entries());
 
@@ -167,7 +149,8 @@ const createChatMemoryContext = (body: ChatRequestBody, baseContext?: RequestCon
   const threadId =
     getString(body.threadId) ||
     getString(body.memory?.thread) ||
-    getString(body.requestContext?.[MASTRA_THREAD_ID_KEY]);
+    getString(body.requestContext?.[MASTRA_THREAD_ID_KEY]) ||
+    `thread-${crypto.randomUUID()}`;
   const resourceId =
     getString(body.resourceId) ||
     getString(body.memory?.resource) ||
@@ -199,7 +182,6 @@ export const mastra = new Mastra({
         handler: async (c) => {
           const body = await c.req.json<ChatRequestBody>();
           const messages = (body.messages ?? []) as UIMessage[];
-          const manualToolResult = await getManualToolResult(getLatestUserText(messages));
           const memoryContext = createChatMemoryContext(body, c.get('requestContext'));
           const agent = c.get('mastra').getAgentById(c.req.param('agentId'));
 
@@ -207,26 +189,12 @@ export const mastra = new Mastra({
             throw new Error(`Agent ${c.req.param('agentId')} not found`);
           }
 
-          const generationMessages = withManualToolContext(toMastraMessages(messages), manualToolResult);
-          const generationOptions = {
-            maxSteps: 8,
-            ...(manualToolResult ? { toolChoice: 'none' as const } : {}),
-            abortSignal: c.req.raw.signal,
-            requestContext: memoryContext.requestContext,
-            ...(memoryContext.threadId
-              ? {
-                  memory: {
-                    thread: memoryContext.threadId,
-                    resource: memoryContext.resourceId,
-                  },
-                }
-              : {}),
-          };
-
           const stream = createUIMessageStream({
             originalMessages: messages,
             execute: async ({ writer }) => {
               writer.write({ type: 'start' });
+
+              const manualToolResult = await getManualToolResult(getLatestUserText(messages));
 
               if (manualToolResult) {
                 writer.write({
@@ -241,20 +209,30 @@ export const mastra = new Mastra({
                 });
               }
 
-              const agentResult = await agent.generate(generationMessages, generationOptions);
+              const generationMessages = withManualToolContext(toMastraMessages(messages), manualToolResult);
+              const generationOptions = {
+                maxSteps: 8,
+                ...(manualToolResult ? { toolChoice: 'none' as const } : {}),
+                abortSignal: c.req.raw.signal,
+                requestContext: memoryContext.requestContext,
+                ...(memoryContext.threadId
+                  ? {
+                      memory: {
+                        thread: memoryContext.threadId,
+                        resource: memoryContext.resourceId,
+                      },
+                    }
+                  : {}),
+              };
+              const agentStream = await agent.stream(generationMessages, generationOptions);
 
-              const answerText = removeRepeatedText(agentResult.text);
+              for await (const part of toAISdkStream(agentStream, { from: 'agent', version: 'v6' })) {
+                if (part.type === 'start') {
+                  continue;
+                }
 
-              if (answerText) {
-                const textId = `txt-${crypto.randomUUID()}`;
-                writer.write({ type: 'start-step' });
-                writer.write({ type: 'text-start', id: textId });
-                writer.write({ type: 'text-delta', id: textId, delta: answerText });
-                writer.write({ type: 'text-end', id: textId });
-                writer.write({ type: 'finish-step' });
+                writer.write(part);
               }
-
-              writer.write({ type: 'finish', finishReason: 'stop' });
             },
           });
 

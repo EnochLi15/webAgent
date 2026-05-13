@@ -20,6 +20,26 @@ interface WeatherResponse {
   };
 }
 
+const fetchJson = async <ResponseShape>(url: string, label: string): Promise<ResponseShape> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+
+    if (!response.ok) {
+      throw new Error(`${label} returned HTTP ${response.status}`);
+    }
+
+    return (await response.json()) as ResponseShape;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${label} request failed: ${message}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 export const weatherTool = createTool({
   id: 'get-weather',
   description: 'Get current weather for a location',
@@ -42,8 +62,7 @@ export const weatherTool = createTool({
 
 export const getWeather = async (location: string) => {
   const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1`;
-  const geocodingResponse = await fetch(geocodingUrl);
-  const geocodingData = (await geocodingResponse.json()) as GeocodingResponse;
+  const geocodingData = await fetchJson<GeocodingResponse>(geocodingUrl, 'Open-Meteo geocoding');
 
   if (!geocodingData.results?.[0]) {
     throw new Error(`Location '${location}' not found`);
@@ -53,8 +72,7 @@ export const getWeather = async (location: string) => {
 
   const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_gusts_10m,weather_code`;
 
-  const response = await fetch(weatherUrl);
-  const data = (await response.json()) as WeatherResponse;
+  const data = await fetchJson<WeatherResponse>(weatherUrl, 'Open-Meteo forecast');
 
   return {
     temperature: data.current.temperature_2m,
