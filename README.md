@@ -22,9 +22,21 @@ Start the development server:
 npm run dev
 ```
 
+Open [http://localhost:5174](http://localhost:5174) to use the Vue Generative UI console. It talks to Mastra through the AI SDK-compatible chat route at `/chat/:agentId`.
+
 Open [http://localhost:4111](http://localhost:4111) in your browser to access [Mastra Studio](https://mastra.ai/docs/studio/overview). It provides an interactive UI for building and testing your agents, along with a REST API that exposes your Mastra application as a local service. This lets you start building without worrying about integration right away.
 
 You can start editing files inside the `src/mastra` directory. The development server will automatically reload whenever you make changes.
+
+Useful scripts:
+
+```shell
+npm run dev:mastra # Mastra Studio and API server on :4111
+npm run dev:ui     # Vue UI on :5174 with /chat proxied to Mastra
+npm run build:ui   # Build the Vue UI
+```
+
+The Generative UI integration follows Mastra's AI SDK UI stream pattern with `@mastra/ai-sdk` and AI SDK's Vue chat client. Tool outputs are rendered as Vue components from AI SDK message parts such as `tool-get-weather` and `tool-fetch-url-metadata`.
 
 ## Learn more
 
