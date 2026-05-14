@@ -20,11 +20,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 </script>
 
 <template>
-  <p v-if="part.type === 'text'" class="text-part">{{ part.text }}</p>
+  <p v-if="part.type === 'text' && part.text" class="text-part">{{ part.text }}</p>
 
   <div v-else-if="part.type === 'tool-get-weather'" class="tool-part">
     <div v-if="part.state === 'input-available' || part.state === 'input-streaming'" class="pending-card">
-      Fetching weather...
+      <span class="pending-spinner" aria-hidden="true"></span>
+      <span>Fetching weather...</span>
     </div>
     <WeatherCard v-else-if="part.state === 'output-available' && isRecord(part.output)" :weather="part.output" />
     <div v-else-if="part.state === 'output-error'" class="error-card">{{ part.errorText }}</div>
@@ -37,7 +38,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
   <div v-else-if="part.type === 'tool-fetch-url-metadata'" class="tool-part">
     <div v-if="part.state === 'input-available' || part.state === 'input-streaming'" class="pending-card">
-      Inspecting URL...
+      <span class="pending-spinner" aria-hidden="true"></span>
+      <span>Inspecting URL...</span>
     </div>
     <MetadataCard v-else-if="part.state === 'output-available' && isRecord(part.output)" :metadata="part.output" />
     <div v-else-if="part.state === 'output-error'" class="error-card">{{ part.errorText }}</div>

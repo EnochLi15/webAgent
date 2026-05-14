@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { DefaultChatTransport, type UIMessage } from 'ai';
 import { Chat } from '@ai-sdk/vue';
-import { computed, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import MessagePart from './components/MessagePart.vue';
 
 const input = ref('上海天气怎么样？');
 const agentId = ref<'web-agent' | 'weather-agent'>('web-agent');
 const threadId = ref(`thread-${crypto.randomUUID()}`);
 const resourceId = ref('local-user');
+const messagesEnd = ref<HTMLElement | null>(null);
 
 const chat = new Chat<UIMessage>({
   transport: new DefaultChatTransport({
@@ -30,6 +31,23 @@ const chat = new Chat<UIMessage>({
 const status = computed(() => chat.status);
 const error = computed(() => chat.error);
 const isBusy = computed(() => chat.status === 'submitted' || chat.status === 'streaming');
+const statusLabel = computed(() => {
+  if (chat.status === 'submitted') {
+    return 'Waiting for model';
+  }
+
+  if (chat.status === 'streaming') {
+    return 'Streaming response';
+  }
+
+  if (chat.status === 'error') {
+    return 'Needs attention';
+  }
+
+  return 'Ready';
+});
+const hasMessages = computed(() => chat.messages.length > 0);
+const canRetry = computed(() => Boolean(error.value && hasMessages.value));
 
 const submitMessage = async () => {
   const text = input.value.trim();
@@ -44,6 +62,26 @@ const submitMessage = async () => {
   });
 };
 
+const stopResponse = async () => {
+  await chat.stop();
+};
+
+const retryLastMessage = async () => {
+  chat.clearError();
+  await chat.regenerate();
+};
+
+const isPendingAssistantMessage = (message: UIMessage, index: number) =>
+  isBusy.value &&
+  index === chat.messages.length - 1 &&
+  message.role === 'assistant' &&
+  (message.parts.length === 0 ||
+    message.parts.every(part => part.type === 'text' && !part.text.trim()));
+
+const hasVisibleMessageContent = (message: UIMessage, index: number) =>
+  isPendingAssistantMessage(message, index) ||
+  message.parts.some(part => part.type !== 'text' || part.text.trim().length > 0);
+
 const usePrompt = (text: string) => {
   input.value = text;
 };
@@ -53,6 +91,15 @@ const startNewThread = () => {
   chat.messages = [];
   chat.clearError();
 };
+
+watch(
+  () => [chat.messages, chat.status],
+  async () => {
+    await nextTick();
+    messagesEnd.value?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  },
+  { deep: true },
+);
 </script>
 
 <template>
@@ -65,6 +112,10 @@ const startNewThread = () => {
         </div>
 
         <div class="controls">
+          <span class="status-pill" :class="`status-${status}`" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            {{ statusLabel }}
+          </span>
           <select v-model="agentId" :disabled="isBusy" aria-label="Agent">
             <option value="web-agent">Web Agent</option>
             <option value="weather-agent">Weather Agent</option>
@@ -83,8 +134,9 @@ const startNewThread = () => {
 
       <div class="messages" aria-live="polite">
         <article
-          v-for="message in chat.messages"
+          v-for="(message, messageIndex) in chat.messages"
           :key="message.id"
+          v-show="hasVisibleMessageContent(message, messageIndex)"
           class="message"
           :class="`message-${message.role}`"
         >
@@ -94,29 +146,63 @@ const startNewThread = () => {
               v-for="(part, index) in message.parts"
               :key="`${message.id}-${index}`"
             >
-              <p v-if="part.type === 'text'" class="text-part">{{ part.text }}</p>
+              <p v-if="part.type === 'text' && part.text" class="text-part">{{ part.text }}</p>
               <MessagePart v-else :part="part" :role="message.role" />
             </template>
+            <div v-if="isPendingAssistantMessage(message, messageIndex)" class="thinking-card" role="status">
+              <span class="typing-dots" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </span>
+              <span>Model is getting ready...</span>
+            </div>
           </div>
         </article>
 
         <div v-if="chat.messages.length === 0" class="empty-state">
           <p>Ask for weather, URL metadata, or browser-backed web work.</p>
         </div>
+
+        <article v-if="status === 'submitted'" class="message message-assistant">
+          <div class="message-role">assistant</div>
+          <div class="parts">
+            <div class="thinking-card" role="status">
+              <span class="typing-dots" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+              </span>
+              <span>Model is getting ready...</span>
+            </div>
+          </div>
+        </article>
+
+        <div ref="messagesEnd" class="messages-end" aria-hidden="true"></div>
       </div>
 
-      <p v-if="error" class="error">{{ error.message }}</p>
+      <div v-if="error" class="error" role="alert">
+        <span>{{ error.message }}</span>
+        <button v-if="canRetry" class="inline-button" type="button" @click="retryLastMessage">
+          Retry
+        </button>
+      </div>
 
       <form class="composer" @submit.prevent="submitMessage">
+        <label class="sr-only" for="chat-input">Message</label>
         <textarea
+          id="chat-input"
           v-model="input"
           rows="2"
           placeholder="Send a message to Mastra"
           :disabled="isBusy"
           @keydown.enter.exact.prevent="submitMessage"
         />
-        <button type="submit" :disabled="isBusy || !input.trim()">
-          {{ isBusy ? 'Streaming' : 'Send' }}
+        <button v-if="isBusy" class="stop-button" type="button" @click="stopResponse">
+          Stop
+        </button>
+        <button v-else type="submit" :disabled="!input.trim()">
+          Send
         </button>
       </form>
     </section>
